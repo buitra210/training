@@ -1,5 +1,17 @@
 import sys
 import os
+from array import array
+
+from pkg_resources import require
+from pydantic.v1.schema import schema
+from pygments.lexer import default
+from pymongo.message import query
+from sanic_ext import validate
+from sanic_ext.extensions.openapi import openapi
+# from uvloop.dns import request
+
+from app.constants.cache_constants import CacheConstants
+from app.decorators.auth import protected
 
 cwd = os.path.dirname(os.path.abspath(__file__))
 prj_dir = os.path.join(cwd, os.pardir, os.pardir)
@@ -18,7 +30,9 @@ from app.databases.mongodb import MongoDB
 # from app.databases.redis_cached import get_cache, set_cache
 from app.decorators.json_validator import validate_with_jsonschema
 from app.hooks.error import ApiInternalError
-from app.models.book import create_book_json_schema, Book
+from app.models.book import create_book_json_schema, Book, BookBase
+from app.models.auth import AuthBase
+from app.databases.redis_cached import get_cache, set_cache
 
 books_bp = Blueprint('books_blueprint', url_prefix='/books')
 
@@ -27,32 +41,43 @@ _db = MongoDB()
 
 @books_bp.route('/')
 async def get_all_books(request):
-    # # TODO: use cache to optimize api
-    # async with request.app.ctx.redis as r:
-    #     books = await get_cache(r, CacheConstants.all_books)
-    #     if books is None:
-    #         book_objs = _db.get_books()
-    #         books = [book.to_dict() for book in book_objs]
-    #         await set_cache(r, CacheConstants.all_books, books)
-
-    book_objs = _db.get_books()
-    books = [book.to_dict() for book in book_objs]
+    async with request.app.ctx.redis as r:
+        books = await get_cache(r, CacheConstants.all_books)
+        if books is None:
+            book_objs = _db.get_books()
+            books = [book.to_dict() for book in book_objs]
+            # data = 0
+            # for i in range(1, 121):
+            #     data += int(i**2)/ i
+            await set_cache(r, CacheConstants.all_books, books)
+    #
+    # book_objs = _db.get_books()
+    # books = [book.to_dict() for book in book_objs]
     number_of_books = len(books)
     return json({
-        'n_books': number_of_books,
+        number_of_books: number_of_books,
         'books': books
     })
 
 
 @books_bp.route('/', methods={'POST'})
-# @protected  # TODO: Authenticate
-@validate_with_jsonschema(create_book_json_schema)  # To validate request body
-async def create_book(request, username=None):
-    body = request.json
+#@validate_with_jsonschema(create_book_json_schema)
+# To validate request body
 
+@openapi.parameter(name='username', location='headers', schema=str, required=True)
+@openapi.parameter(name='title', location='query', schema=str, default='ahihi')
+@openapi.parameter(name= "authors", location='query', schema=str, default='')
+@openapi.parameter(name='publisher', location='query', schema=str, default='BuiTra')
+@openapi.secured('Authentication')
+@protected
+@validate(query=BookBase)
+async def create_book(request, query: BookBase):
+    body = query
+    username = request.headers.get('username')
     book_id = str(uuid.uuid4())
     book = Book(book_id).from_dict(body)
     book.owner = username
+    print(book.to_dict())
     # # TODO: Save book to database
     inserted = _db.add_book(book)
     if not inserted:
@@ -79,8 +104,7 @@ async def get_book(request, book_id, username=None):
 
 @books_bp.route('/<book_id>', methods={'PUT'})
 async def update_book(request, book_id, username=None):
-    body = request.json
-
+    body = {"publisher": "new publisher"}
     update_result = _db.update_book(book_id, body)
 
     if update_result is False:

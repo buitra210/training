@@ -56,3 +56,4 @@ class MongoDBConfig:
     HOST = os.environ.get("MONGO_HOST") or "localhost"
     PORT = os.environ.get("MONGO_PORT") or "27017"
     DATABASE = os.environ.get("MONGO_DATABASE") or "example_db"
+    CONNECTION_URL = os.environ.get("MONGO_CONNECTION_URL") or f'mongodb://{USERNAME}:{PASSWORD}@{HOST}:{PORT}'

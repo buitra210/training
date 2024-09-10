@@ -35,3 +35,4 @@ def protected(wrapped):
         return decorated_function
 
     return decorator(wrapped)
+
